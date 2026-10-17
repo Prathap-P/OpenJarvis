@@ -1744,3 +1744,64 @@ class TestTraceRecording:
         assert trace.query == "stream please"
         # _make_engine streams "Hello", " ", "world".
         assert trace.result == "Hello world"
+
+
+# ---------------------------------------------------------------------------
+# Streaming agent finish chunk carries per-response audio
+# ---------------------------------------------------------------------------
+
+
+class TestAgentStreamFinishAudio:
+    @staticmethod
+    def _finish_chunk(agent_result):
+        agent = _make_agent()
+        agent.run.return_value = agent_result
+        app = create_app(_make_engine(), "test-model", agent=agent, config=_test_config())
+        resp = TestClient(app).post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "play my digest"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        chunks = [
+            json.loads(line[5:].strip())
+            for line in resp.text.strip().split("\n")
+            if line.startswith("data:") and "[DONE]" not in line
+        ]
+        finish = [c for c in chunks if c["choices"] and c["choices"][0].get("finish_reason") == "stop"]
+        assert len(finish) == 1
+        return finish[0]
+
+    def test_finish_chunk_carries_audio_when_response_has_audio(self, tmp_path):
+        from openjarvis.agents._stubs import AgentResult
+
+        audio_file = tmp_path / "digest.mp3"
+        audio_file.write_bytes(b"ID3")
+        result = AgentResult(content="Your digest", turns=1, metadata={"audio_path": str(audio_file)})
+
+        finish = self._finish_chunk(result)
+
+        assert finish["audio"] == {"url": "/api/digest/audio"}
+        assert "usage" in finish
+
+    def test_finish_chunk_omits_audio_when_response_has_none(self):
+        from openjarvis.agents._stubs import AgentResult
+
+        finish = self._finish_chunk(AgentResult(content="Plain reply", turns=1))
+
+        assert "audio" not in finish
+        assert "usage" in finish
+
+    def test_finish_chunk_omits_audio_when_audio_file_is_missing(self, tmp_path):
+        from openjarvis.agents._stubs import AgentResult
+
+        missing = tmp_path / "does-not-exist.mp3"
+        result = AgentResult(content="Your digest", turns=1, metadata={"audio_path": str(missing)})
+
+        finish = self._finish_chunk(result)
+
+        assert "audio" not in finish
+        assert "usage" in finish
