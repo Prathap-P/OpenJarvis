@@ -24,6 +24,8 @@ class MCPToolAdapter(BaseTool):
     """
 
     tool_id = "mcp_adapter"
+    # Proxies an external MCP server: executor must apply the outbound boundary guard and output injection scan.
+    is_local = False
 
     def __init__(self, client: MCPClient, tool_spec: ToolSpec) -> None:
         self._client = client
