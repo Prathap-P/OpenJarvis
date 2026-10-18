@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Set
 
+from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.skills.executor import SkillExecutor
 from openjarvis.skills.types import SkillManifest
@@ -122,6 +123,22 @@ class SkillTool(BaseTool):
     # ------------------------------------------------------------------
     # BaseTool interface
     # ------------------------------------------------------------------
+
+    @property
+    def is_local(self) -> bool:  # type: ignore[override]
+        """Whether this skill touches only local tools.
+
+        Instruction-only skills (no steps) are local.  A pipeline skill is
+        non-local if any step's tool is non-local in :class:`ToolRegistry`,
+        or cannot be resolved there (MCP tools, sub-skill steps, unknown
+        names): unresolved tools are conservatively treated as external so
+        the executor guards this outer call and scans its output.
+        """
+        return all(
+            ToolRegistry.contains(step.tool_name)
+            and getattr(ToolRegistry.get(step.tool_name), "is_local", True)
+            for step in self._manifest.steps
+        )
 
     @property
     def spec(self) -> ToolSpec:
